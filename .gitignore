@@ -1,4 +1,30 @@
 .vs/
+.vscode/
 obj/
 bin/
 *.user
+*.suo
+dist/
+.research/
+.tools/
+
+# Local diagnostics can contain character details, memory contents and absolute paths.
+diagnostics/
+*.dmp
+*.mdmp
+*.log
+*.trace
+*.jsonl
+*.etl
+*.wer
+
+# Keep personal settings, credentials and generated release archives out of source.
+.env
+.env.*
+!.env.example
+.secrets/
+*.local.*
+*.zip
+
+# Unused assets inherited from the SamplePlugin template.
+/Data/

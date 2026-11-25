@@ -1,0 +1,5 @@
+<Project>
+  <PropertyGroup>
+    <DALAMUD_HOME Condition="'$(DALAMUD_HOME)' == '' and Exists('$(APPDATA)/XIVLauncherCN/addon/Hooks/dev/Dalamud.dll')">$(APPDATA)/XIVLauncherCN/addon/Hooks/dev</DALAMUD_HOME>
+  </PropertyGroup>
+</Project>
