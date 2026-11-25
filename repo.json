@@ -1,0 +1,30 @@
+[
+  {
+    "Author": "baiyi127",
+    "Name": "天穹循环 SkyLoop（测试版）",
+    "InternalName": "SkyLoop",
+    "AssemblyVersion": "0.1.0.0",
+    "Description": "国服 API 15 测试版。可编辑宏队列，检测宏及制作结果，背包阈值自动提交，票数阈值自动兑换；需要 vnavmesh 导航。完整游戏循环尚未验证通过。",
+    "ApplicableVersion": "any",
+    "RepoUrl": "https://github.com/baiyi127/SkyLoop",
+    "Tags": [
+      "crafting",
+      "firmament",
+      "macro"
+    ],
+    "DalamudApiLevel": 15,
+    "LoadRequiredState": 0,
+    "LoadSync": false,
+    "CanUnloadAsync": false,
+    "LoadPriority": 0,
+    "Punchline": "宏队列、伊修加德重建提交与天穹街振兴票兑换。",
+    "AcceptsFeedback": true,
+    "IsHide": false,
+    "IsTestingExclusive": false,
+    "DownloadLinkInstall": "https://github.com/baiyi127/SkyLoop/releases/download/v0.1.0/SkyLoop-0.1.0.zip",
+    "DownloadLinkUpdate": "https://github.com/baiyi127/SkyLoop/releases/download/v0.1.0/SkyLoop-0.1.0.zip",
+    "DownloadLinkTesting": "https://github.com/baiyi127/SkyLoop/releases/download/v0.1.0/SkyLoop-0.1.0.zip",
+    "LastUpdate": 1795646584,
+    "Changelog": "首次公开测试版：宏队列、重建收藏品提交和天穹票兑换。仅适用于国服 API 15；完整游戏循环尚未验证通过。"
+  }
+]
