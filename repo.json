@@ -3,7 +3,7 @@
     "Author": "baiyi127",
     "Name": "天穹循环 SkyLoop（测试版）",
     "InternalName": "SkyLoop",
-    "AssemblyVersion": "0.1.0.0",
+    "AssemblyVersion": "0.1.1.0",
     "Description": "国服 API 15 测试版。可编辑宏队列，检测宏及制作结果，背包阈值自动提交，票数阈值自动兑换；需要 vnavmesh 导航。完整游戏循环尚未验证通过。",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/baiyi127/SkyLoop",
@@ -21,10 +21,10 @@
     "AcceptsFeedback": true,
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/baiyi127/SkyLoop/releases/download/v0.1.0/SkyLoop-0.1.0.zip",
-    "DownloadLinkUpdate": "https://github.com/baiyi127/SkyLoop/releases/download/v0.1.0/SkyLoop-0.1.0.zip",
-    "DownloadLinkTesting": "https://github.com/baiyi127/SkyLoop/releases/download/v0.1.0/SkyLoop-0.1.0.zip",
-    "LastUpdate": 1795646584,
-    "Changelog": "首次公开测试版：宏队列、重建收藏品提交和天穹票兑换。仅适用于国服 API 15；完整游戏循环尚未验证通过。"
+    "DownloadLinkInstall": "https://github.com/baiyi127/SkyLoop/releases/download/v0.1.1/SkyLoop-0.1.1.zip",
+    "DownloadLinkUpdate": "https://github.com/baiyi127/SkyLoop/releases/download/v0.1.1/SkyLoop-0.1.1.zip",
+    "DownloadLinkTesting": "https://github.com/baiyi127/SkyLoop/releases/download/v0.1.1/SkyLoop-0.1.1.zip",
+    "LastUpdate": 1795704318,
+    "Changelog": "修复宏编号偏移：按游戏格子0–99直接调用，64读取64；个人与共通宏均生效。已有配置编号保持不变。仅适用于国服API15测试版，完整游戏循环尚未验证通过。"
   }
 ]
