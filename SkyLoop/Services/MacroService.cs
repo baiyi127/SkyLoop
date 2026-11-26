@@ -41,9 +41,9 @@ public sealed unsafe class MacroService
     {
         Error = "";
         step = null;
-        if (value.Number is < 1 or > 100)
+        if (!MacroAddress.TryCreate(value.Shared, value.Number, out var address))
         {
-            Error = "宏编号必须为 1–100。";
+            Error = "宏编号必须为 0–99，与游戏宏界面显示的编号一致。";
             return;
         }
         if (Plugin.ObjectTable.LocalPlayer == null)
@@ -63,7 +63,7 @@ public sealed unsafe class MacroService
             Error = "已有宏正在执行，请等待其结束。";
             return;
         }
-        var macro = macros->GetMacro(value.Shared ? 1u : 0u, (uint)(value.Number - 1));
+        var macro = macros->GetMacro(address.Set, address.Index);
         if (macro == null || macros->GetLineCount(macro) == 0)
         {
             Error = $"{(value.Shared ? "共通" : "个人")}宏 {value.Number} 为空。";

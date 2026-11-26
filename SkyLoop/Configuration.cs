@@ -34,7 +34,7 @@ public sealed class MacroStep
 {
     public bool Enabled = true;
     public bool Shared = true;
-    public int Number = 1;
+    public int Number = 0;
     public CompletionKind Completion;
     public uint ItemId;
     public int MinimumIncrease = 1;

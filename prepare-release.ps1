@@ -1,7 +1,8 @@
 param(
     [ValidatePattern('^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$')]
     [string]$Repository = 'baiyi127/SkyLoop',
-    [string]$DalamudPath = "$env:APPDATA\XIVLauncherCN\addon\Hooks\dev"
+    [string]$DalamudPath = "$env:APPDATA\XIVLauncherCN\addon\Hooks\dev",
+    [string]$Changelog = '修复宏编号偏移：按游戏格子0–99直接调用，64读取64；个人与共通宏均生效。已有配置编号保持不变。仅适用于国服API15测试版，完整游戏循环尚未验证通过。'
 )
 $ErrorActionPreference = 'Stop'
 & (Join-Path $PSScriptRoot 'build.ps1') -DalamudPath $DalamudPath
@@ -20,7 +21,7 @@ $skyManifest['DownloadLinkInstall'] = $skyDownloadUrl
 $skyManifest['DownloadLinkUpdate'] = $skyDownloadUrl
 $skyManifest['DownloadLinkTesting'] = $skyDownloadUrl
 $skyManifest['LastUpdate'] = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-$skyManifest['Changelog'] = '首次公开测试版：宏队列、重建收藏品提交和天穹票兑换。仅适用于国服 API 15；完整游戏循环尚未验证通过。'
+$skyManifest['Changelog'] = $Changelog
 $skyArray = [object[]]@($skyManifest)
 $skyJson = ConvertTo-Json -InputObject $skyArray -Depth 12
 [IO.File]::WriteAllText((Join-Path $PSScriptRoot 'repo.json'), $skyJson + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))

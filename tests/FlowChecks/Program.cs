@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.Json;
 using Dalamud.Game.ClientState.Conditions;
 using SkyLoop;
 using SkyLoop.Services;
@@ -7,6 +8,10 @@ var checks = new (string Name, Action Run)[]
 {
     ("start rejects an empty macro queue", RejectEmptyQueue),
     ("start rejects invalid macro numbers", RejectInvalidMacro),
+    ("visible macro addresses preserve the game grid number in both banks", NativeMacroAddressing),
+    ("start accepts macro zero and 99 in both banks", AcceptMacroBoundaries),
+    ("macro 64 keeps its number through configuration reload and start", PreserveSavedMacro64),
+    ("a new macro defaults to visible slot zero in the shared bank", DefaultSharedBank),
     ("start requires navigation for automatic errands", RejectMissingNavigation),
     ("start rejects locations from a different territory", RejectDifferentTerritory),
     ("automatic crafting requires a final result condition", RejectPrematureCraftCompletion),
@@ -93,12 +98,82 @@ static void RejectEmptyQueue()
 
 static void RejectInvalidMacro()
 {
-    foreach (var number in new[] { 0, 101 })
+    foreach (var number in new[] { -1, 100 })
     {
+        Reset();
         var config = Config(); config.Macros[0].Number = number;
         var loop = new LoopController(config); loop.Start();
         ExpectState(loop, LoopState.Faulted);
+        Expect(config.Macros[0].Number == number, "invalid legacy numbers must not be silently clamped or migrated");
+        Expect(loop.Status.Contains("0", StringComparison.Ordinal) && loop.Status.Contains("99", StringComparison.Ordinal), "error must explain the game's valid 0-99 macro range");
+        Expect(MacroService.Started.Count == 0, "invalid number must not execute a different macro");
     }
+}
+
+static void NativeMacroAddressing()
+{
+    foreach (var shared in new[] { false, true })
+    {
+        foreach (var number in new[] { 0, 64, 99 })
+        {
+            Expect(MacroAddress.IsValidNumber(number), $"visible macro {number} must be valid");
+            Expect(MacroAddress.TryCreate(shared, number, out var address), "valid macro address should be created");
+            Expect(address != null && address.Set == (shared ? 1u : 0u), "bank mapping must preserve personal/shared selection");
+            Expect(address!.Index == (uint)number, $"visible macro {number} must call native slot {number}, without subtracting one");
+        }
+        foreach (var number in new[] { -1, 100 })
+        {
+            Expect(!MacroAddress.IsValidNumber(number), $"out-of-range macro {number} must be invalid");
+            Expect(!MacroAddress.TryCreate(shared, number, out var address) && address == null, "invalid numbers must never map to a neighboring native slot");
+        }
+    }
+}
+
+static void AcceptMacroBoundaries()
+{
+    foreach (var shared in new[] { false, true })
+    foreach (var number in new[] { 0, 99 })
+    {
+        Reset();
+        var config = Config(); config.Macros[0].Number = number; config.Macros[0].Shared = shared;
+        var loop = new LoopController(config); loop.Start();
+        ExpectState(loop, LoopState.Decide);
+        Tick(loop); Tick(loop);
+        ExpectState(loop, LoopState.RunningMacro);
+        Expect(MacroService.Started.SequenceEqual([number]), $"controller must pass visible macro {number} unchanged");
+        Expect(config.Macros[0].Shared == shared, "controller must not rewrite the macro bank");
+    }
+}
+
+static void PreserveSavedMacro64()
+{
+    foreach (var shared in new[] { false, true })
+    {
+        Reset();
+        var config = Config(); config.Macros[0].Number = 64; config.Macros[0].Shared = shared;
+        var options = new JsonSerializerOptions { IncludeFields = true };
+        var json = JsonSerializer.Serialize(config, options);
+        var restored = JsonSerializer.Deserialize<Configuration>(json, options)!;
+        Expect(restored.Macros[0].Number == 64 && restored.Macros[0].Shared == shared, "saved macro 64 must retain its number and bank on reload");
+        restored.Save();
+        var loop = new LoopController(restored); loop.Start(); Tick(loop); Tick(loop);
+        ExpectState(loop, LoopState.RunningMacro);
+        Expect(MacroService.Started.SequenceEqual([64]), "existing user-entered 64 must execute macro 64 after the fix");
+        Expect(restored.Macros[0].Number == 64, "starting must not decrement saved macro numbers");
+    }
+}
+
+static void DefaultSharedBank()
+{
+    Reset();
+    var step = new MacroStep { Completion = CompletionKind.CraftFinished, ItemId = 100 };
+    Expect(step.Shared, "new macro entries must default to the common/shared bank");
+    Expect(step.Number == 0, "new macro entries must default to the first visible game slot, zero");
+    step.Number = 64;
+    var config = Config(); config.Macros = [step];
+    var loop = new LoopController(config); loop.Start(); Tick(loop); Tick(loop);
+    ExpectState(loop, LoopState.RunningMacro);
+    Expect(MacroService.Started.SequenceEqual([64]) && step.Shared, "default shared macro 64 must remain 64");
 }
 
 static void RejectMissingNavigation()

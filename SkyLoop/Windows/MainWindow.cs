@@ -43,7 +43,7 @@ public sealed class MainWindow : Window
         {
             if (ImGui.BeginTabItem("宏队列"))
             {
-                ImGui.TextWrapped("编号按游戏宏窗口的 1–100 填写。个人宏与共通宏分别选择。前段宏可用“宏执行结束”，最后一段建议选“本次制作成功”或“指定物品增加”。");
+                ImGui.TextWrapped("编号按游戏宏格子显示的 0–99 填写，64 就填 64。个人宏与共通宏分别选择。前段宏可用“宏执行结束”，最后一段建议选“本次制作成功”或“指定物品增加”。");
                 var recipe = (int)config.RecipeId;
                 if (ImGui.InputInt("循环制作配方 ID（0 = 宏自行启动）", ref recipe)) { config.RecipeId = (uint)Math.Max(0, recipe); changed = true; }
                 if (config.RecipeId != 0)
@@ -70,7 +70,7 @@ public sealed class MainWindow : Window
                     ImGui.SameLine();
                     if (i + 1 < config.Macros.Count && ImGui.Button("下移")) { (config.Macros[i + 1], config.Macros[i]) = (config.Macros[i], config.Macros[i + 1]); changed = true; }
                     ImGui.SetNextItemWidth(120);
-                    if (ImGui.InputInt("宏编号", ref step.Number)) { step.Number = Math.Clamp(step.Number, 1, 100); changed = true; }
+                    if (ImGui.InputInt("宏编号", ref step.Number)) { step.Number = Math.Clamp(step.Number, MacroAddress.MinimumNumber, MacroAddress.MaximumNumber); changed = true; }
                     var completion = (int)step.Completion;
                     if (ImGui.Combo("成功条件", ref completion, CompletionNames, CompletionNames.Length)) { step.Completion = (CompletionKind)completion; changed = true; }
                     if (step.Completion == CompletionKind.ItemIncreased)

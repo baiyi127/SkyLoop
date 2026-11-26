@@ -44,7 +44,7 @@ public sealed class LoopController
         if (Plugin.ObjectTable.LocalPlayer == null) { Fail("请先登录角色。"); return; }
         if (queue.Count == 0) { Fail("请先添加至少一个启用的宏。"); return; }
         if (config.RecipeId != 0 && queue[^1].Completion == CompletionKind.MacroFinished) { Fail("循环制作时，最后一个宏请选择“本次制作成功”或“指定物品增加”。"); return; }
-        if (queue.Any(x => x.Number is < 1 or > 100 || x.TimeoutSeconds < 5 || x.MinimumIncrease < 1 || x.Completion == CompletionKind.ItemIncreased && x.ItemId == 0)) { Fail("宏编号须为1–100；请检查完成条件与超时。"); return; }
+        if (queue.Any(x => !MacroAddress.IsValidNumber(x.Number) || x.TimeoutSeconds < 5 || x.MinimumIncrease < 1 || x.Completion == CompletionKind.ItemIncreased && x.ItemId == 0)) { Fail("宏编号须为游戏格子显示的0–99；请检查完成条件与超时。"); return; }
         if (config.FreeSlotThreshold is < 1 or > 139 || config.ScripThreshold <= 0 || config.ScripThreshold >= config.ScripCap || config.ScripReserve < 0 || config.ScripReserve >= config.ScripThreshold) { Fail("请检查背包、票数阈值和保留票数。"); return; }
         if ((config.AutoTurnIn || config.AutoExchange) && (!config.CraftLocation.Saved || !navigation.IsAvailable)) { Fail("请记录制作位置并启用 vnavmesh。"); return; }
         if (config.AutoTurnIn && !config.TurnInNpc.Saved) { Fail("请记录提交 NPC。"); return; }
