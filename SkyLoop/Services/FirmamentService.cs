@@ -31,6 +31,7 @@ public sealed unsafe class FirmamentService(Configuration config)
     private int supplyCountBefore;
     private uint currencyBefore;
     private bool handedOver;
+    private bool kupoWarningConfirmed;
     private bool purchaseIssued;
     private uint purchaseShopAddonId;
     private int rewardCountBefore;
@@ -56,6 +57,7 @@ public sealed unsafe class FirmamentService(Configuration config)
         selectedSupply = 0;
         jobIndex = -1;
         handedOver = false;
+        kupoWarningConfirmed = false;
         purchaseIssued = false;
         purchaseShopAddonId = 0;
         selectedReward = null;
@@ -102,12 +104,34 @@ public sealed unsafe class FirmamentService(Configuration config)
         if (DateTime.UtcNow < nextAction) return WorkResult.Pending;
         if (!EnsureNpc(config.TurnInNpc)) return WorkResult.Failed;
 
-        // Only acknowledge a confirmation after our own handover, with the expected item text.
+        // Both ordinary handovers and the exact Kupo-cap warning need our own
+        // pending handover and the NPC context validated above.
         var yesno = Ready("SelectYesno");
         if (yesno != null)
         {
+            var prompt = ReadConfirmationPrompt(yesno);
+            var kupo = KupoFullConfirmation.Evaluate(handedOver, selectedSupply,
+                interacting && mode == "turnin", prompt, config.ContinueWhenKupoFull);
+            if (kupo == KupoFullConfirmationResult.Unowned)
+                return Fail("发现非本次交付产生的库啵好运票确认，已停止提交。");
+            if (kupo == KupoFullConfirmationResult.StopAtCap)
+                return Fail("库啵好运票已达上限，已停止提交。请先刮奖，或开启“库啵好运票已满时继续提交（放弃新好运章）”。");
+            if (kupo == KupoFullConfirmationResult.Confirm)
+            {
+                if (kupoWarningConfirmed) return WorkResult.Pending;
+                if (!ClickButton(yesno, ((AddonSelectYesno*)yesno)->YesButton)) return WorkResult.Pending;
+                kupoWarningConfirmed = true;
+                Plugin.Log.Information($"Confirmed Kupo voucher cap warning for our handover: item={selectedSupply}, npc={config.TurnInNpc.DataId}, prompt={prompt}");
+                Progress("已确认放弃新库啵好运章，等待物品减少及振兴票增加");
+                return WorkResult.Pending;
+            }
+            // The same native dialog can append another currency/item overflow
+            // warning. Consent to lose Kupo stamps does not authorize that loss.
+            if (prompt.Contains("库啵好运票", StringComparison.Ordinal)
+                || prompt.Contains("持有数量已达上限", StringComparison.Ordinal))
+                return Fail("提交确认含有未授权的奖励上限提示，已停止。确认内容：" + prompt);
             if (!handedOver || !ConfirmationNamesItem(yesno, selectedSupply))
-                return Fail("出现非预期确认框，已停止提交，请手动处理。");
+                return Fail("出现非预期确认框，已停止提交，请手动处理。确认内容：" + prompt);
             if (!ClickButton(yesno, ((AddonSelectYesno*)yesno)->YesButton))
                 return WorkResult.Pending;
             Delay();
@@ -122,6 +146,7 @@ public sealed unsafe class FirmamentService(Configuration config)
                 CompletedTurnIns++;
                 selectedSupply = 0;
                 handedOver = false;
+                kupoWarningConfirmed = false;
                 Progress("提交成功，已核对物品减少和票数增加。");
             }
             return WorkResult.Pending;
@@ -252,14 +277,7 @@ public sealed unsafe class FirmamentService(Configuration config)
             var actualItem = yesno->AtkValuesCount > 14 ? yesno->AtkValues[14] : default;
             var actualItemId = actualItem.Type == AtkValueType.UInt ? actualItem.UInt :
                 actualItem.Type == AtkValueType.Int && actualItem.Int > 0 ? (uint)actualItem.Int : 0;
-            var prompt = "";
-            if (yesno->AtkValuesCount > 0)
-            {
-                var text = yesno->AtkValues[0];
-                if (text.Type is AtkValueType.String or AtkValueType.ConstString or AtkValueType.ManagedString
-                    && text.String.Value != null)
-                    prompt = MemoryHelper.ReadSeStringNullTerminated((nint)text.String.Value).TextValue;
-            }
+            var prompt = ReadConfirmationPrompt(yesno);
             var currencyName = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Item>()
                 .GetRow(RewardCatalog.SkybuildersScripId).Name.ExtractText();
             var expectedCost = (long)selectedReward.Cost * purchaseAmount;
@@ -521,6 +539,16 @@ public sealed unsafe class FirmamentService(Configuration config)
             if (item.UInt > 0) entries.Add((item.UInt, cost.UInt, index.UInt));
         }
         return true;
+    }
+
+    private static string ReadConfirmationPrompt(AtkUnitBase* addon)
+    {
+        if (addon == null || addon->AtkValues == null || addon->AtkValuesCount == 0) return "";
+        var text = addon->AtkValues[0];
+        if (text.Type is AtkValueType.String or AtkValueType.ConstString or AtkValueType.ManagedString
+            && text.String.Value != null)
+            return MemoryHelper.ReadSeStringNullTerminated((nint)text.String.Value).TextValue;
+        return "";
     }
 
     private static bool ConfirmationNamesItem(AtkUnitBase* addon, uint itemId)

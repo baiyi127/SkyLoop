@@ -18,6 +18,7 @@ public sealed class Configuration : IPluginConfiguration
     public uint RecipeId;
     public uint RewardItemId;
     public bool AutoTurnIn = true;
+    public bool ContinueWhenKupoFull = true;
     public bool AutoExchange = true;
     public bool Repeat = true;
     public NpcLocation TurnInNpc = new() { Name = "提交 NPC" };

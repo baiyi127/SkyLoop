@@ -100,6 +100,7 @@ public sealed class MainWindow : Window
             if (ImGui.BeginTabItem("背包与兑换"))
             {
                 changed |= ImGui.Checkbox("背包不足时自动提交重建物品", ref config.AutoTurnIn);
+                changed |= ImGui.Checkbox("库啵好运票已满时继续提交（放弃新好运章）", ref config.ContinueWhenKupoFull);
                 if (ImGui.InputInt("剩余空格 ≤ 此值时提交", ref config.FreeSlotThreshold)) { config.FreeSlotThreshold = Math.Clamp(config.FreeSlotThreshold, 1, 139); changed = true; }
                 changed |= ImGui.Checkbox("票数接近上限时自动兑换", ref config.AutoExchange);
                 if (ImGui.InputInt("兑换触发票数", ref config.ScripThreshold)) { config.ScripThreshold = Math.Clamp(config.ScripThreshold, 1, config.ScripCap - 1); changed = true; }

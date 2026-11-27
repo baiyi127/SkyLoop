@@ -30,3 +30,5 @@ jobs:
         run: dotnet run --project tests/CurrencyPolicyChecks/CurrencyPolicyChecks.csproj -c Release
       - name: Check fixed Firmament NPC interaction spots
         run: dotnet run --project tests/FirmamentLocationChecks/FirmamentLocationChecks.csproj -c Release
+      - name: Check owned Kupo voucher cap confirmation
+        run: dotnet run --project tests/KupoFullConfirmationChecks/KupoFullConfirmationChecks.csproj -c Release
