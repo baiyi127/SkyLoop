@@ -2,7 +2,7 @@ param(
     [ValidatePattern('^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$')]
     [string]$Repository = 'baiyi127/SkyLoop',
     [string]$DalamudPath = "$env:APPDATA\XIVLauncherCN\addon\Hooks\dev",
-    [string]$Changelog = '修复重建提交物品身份误判：读取实际NPC交付请求，等待窗口数据就绪，确实不符时才停止。增加当前提交阈值、操作步骤和阶段日志，便于定位制作后停止。仅适用于国服API15测试版，完整游戏循环尚未验证通过。'
+    [string]$Changelog = '新增可搜索的制作配方下拉选择，提交与兑换改用内置固定交互位置。修复制作品检测、第二轮开工、退出制作姿态、普通购买确认及低阈值兑换误判。增加流程和路径诊断。国服API15测试版。'
 )
 $ErrorActionPreference = 'Stop'
 & (Join-Path $PSScriptRoot 'build.ps1') -DalamudPath $DalamudPath

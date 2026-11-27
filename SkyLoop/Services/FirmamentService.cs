@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
+using Dalamud.Memory;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.Control;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
@@ -31,6 +32,7 @@ public sealed unsafe class FirmamentService(Configuration config)
     private uint currencyBefore;
     private bool handedOver;
     private bool purchaseIssued;
+    private uint purchaseShopAddonId;
     private int rewardCountBefore;
     private int purchaseAmount;
     private int categoryAttempt = -1;
@@ -55,6 +57,7 @@ public sealed unsafe class FirmamentService(Configuration config)
         jobIndex = -1;
         handedOver = false;
         purchaseIssued = false;
+        purchaseShopAddonId = 0;
         selectedReward = null;
         loggedRequestMatch = null;
         lastRequestDiagnostic = "";
@@ -185,7 +188,17 @@ public sealed unsafe class FirmamentService(Configuration config)
             return WorkResult.Complete;
         }
         var current = ScripCount();
-        if (current >= config.ScripThreshold || (long)current + supplyOption.MaximumScripReward > config.ScripCap)
+        var exchangeCost = RewardCatalog.Items.FirstOrDefault(item => item.ItemId == config.RewardItemId)?.Cost ?? 0;
+        var decision = CurrencyPolicy.BeforeTurnIn((int)current, config.ScripThreshold, config.ScripReserve,
+            exchangeCost, config.ScripCap, supplyOption.MaximumScripReward, config.AutoExchange);
+        if (decision == TurnInCurrencyDecision.InvalidConfiguration)
+            return Fail("兑换物品或票数配置无效，已停止提交；请检查所选物品价格与保留票数。");
+        if (decision == TurnInCurrencyDecision.BlockedByCap)
+        {
+            supplyWindow->Close(true);
+            return Fail($"下一件提交奖励可能超过票数上限，且当前无法自动兑换。票数 {current}/{config.ScripCap}，下件最大奖励 {supplyOption.MaximumScripReward}，单价 {exchangeCost}，保留 {config.ScripReserve}；请更换兑换品、调整保留票数或手动兑换。");
+        }
+        if (decision == TurnInCurrencyDecision.Exchange)
         {
             NeedsExchange = true;
             supplyWindow->Close(true);
@@ -232,8 +245,34 @@ public sealed unsafe class FirmamentService(Configuration config)
         var yesno = Ready("SelectYesno");
         if (yesno != null)
         {
-            if (!purchaseIssued || !ConfirmationNamesItem(yesno, selectedReward.ItemId))
-                return Fail("出现非预期确认框，已停止兑换，请手动处理。");
+            var confirmationShop = Ready("ShopExchangeCurrency");
+            var shopMatches = confirmationShop != null && confirmationShop->Id == purchaseShopAddonId
+                && ReadShop(confirmationShop, out var rows)
+                && rows.Any(r => r.ItemId == selectedReward.ItemId && r.Cost == selectedReward.Cost);
+            var actualItem = yesno->AtkValuesCount > 14 ? yesno->AtkValues[14] : default;
+            var actualItemId = actualItem.Type == AtkValueType.UInt ? actualItem.UInt :
+                actualItem.Type == AtkValueType.Int && actualItem.Int > 0 ? (uint)actualItem.Int : 0;
+            var prompt = "";
+            if (yesno->AtkValuesCount > 0)
+            {
+                var text = yesno->AtkValues[0];
+                if (text.Type is AtkValueType.String or AtkValueType.ConstString or AtkValueType.ManagedString
+                    && text.String.Value != null)
+                    prompt = MemoryHelper.ReadSeStringNullTerminated((nint)text.String.Value).TextValue;
+            }
+            var currencyName = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Item>()
+                .GetRow(RewardCatalog.SkybuildersScripId).Name.ExtractText();
+            var expectedCost = (long)selectedReward.Cost * purchaseAmount;
+            var confirmationMatch = PurchaseConfirmation.Evaluate(purchaseIssued, shopMatches,
+                selectedReward.ItemId, actualItemId, expectedCost, currencyName, prompt);
+            Plugin.Log.Information($"Exchange confirmation: match={confirmationMatch}, purchaseIssued={purchaseIssued}, shopMatches={shopMatches}, expectedItem={selectedReward.ItemId}, actualItem={actualItemId}, quantity={purchaseAmount}, totalCost={expectedCost}, prompt={prompt}");
+            if (confirmationMatch == PurchaseConfirmationMatch.Unknown)
+            {
+                Status = "等待购买确认框的物品和商店数据就绪";
+                return WorkResult.Pending;
+            }
+            if (confirmationMatch == PurchaseConfirmationMatch.Mismatch)
+                return Fail($"兑换确认与本次购买请求不符，已停止。预期物品 {selectedReward.ItemId}，实际物品 {actualItemId}，预期花费 {expectedCost}。确认内容：{prompt}");
             ClickButton(yesno, ((AddonSelectYesno*)yesno)->YesButton);
             Delay();
             return WorkResult.Pending;
@@ -287,6 +326,7 @@ public sealed unsafe class FirmamentService(Configuration config)
                 currencyBefore = ScripCount();
                 rewardCountBefore = InventoryService.Count(selectedReward.ItemId);
                 purchaseIssued = true;
+                purchaseShopAddonId = shop->Id;
                 Fire(shop, 0, row.Index, purchaseAmount);
                 Progress("已请求兑换，等待游戏确认窗口与数量变化。");
                 return WorkResult.Pending;
@@ -370,14 +410,28 @@ public sealed unsafe class FirmamentService(Configuration config)
             return false;
         }
         var npc = Plugin.ObjectTable.FirstOrDefault(o => o.BaseId == expected.DataId);
-        if (npc == null || Vector3.Distance(player.Position, npc.Position) > 6)
+        if (npc == null || !interacting && !npc.IsTargetable)
+        {
+            // NPCs may only load when we arrive. Resolve the phase's live identity
+            // again without changing the fixed counter-side navigation destination.
+            var turnIn = ReferenceEquals(expected, config.TurnInNpc);
+            FirmamentLocations.Apply(config, Plugin.ObjectTable.Where(o => o.IsTargetable
+                && o.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventNpc).Select(o => o.BaseId));
+            expected = turnIn ? config.TurnInNpc : config.ExchangeNpc;
+            npc = Plugin.ObjectTable.FirstOrDefault(o => o.BaseId == expected.DataId);
+        }
+        // A fixed counter-side spot can be farther from the NPC's
+        // centre than the old generic guard. The game still checks actual
+        // interaction range and line of sight through InteractWithObject(true).
+        var maximumDistance = expected.ApproachSaved ? 8f : 6f;
+        if (npc == null || Vector3.Distance(player.Position, npc.Position) > maximumDistance)
         {
             Error = "目标 NPC 不在交互距离内，请检查保存的位置和寻路。";
             return false;
         }
         if (interacting && Plugin.TargetManager.Target?.BaseId != expected.DataId)
         {
-            Error = "交互目标已改变，已停止 NPC 操作。";
+            Error = $"交互目标已改变，已停止 NPC 操作。（预期 {expected.DataId}，当前 {Plugin.TargetManager.Target?.BaseId ?? 0}）";
             return false;
         }
         return true;

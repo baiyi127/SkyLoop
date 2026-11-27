@@ -52,4 +52,11 @@ public sealed class NpcLocation
     public float Y;
     public float Z;
     public Vector3 Position => new(X, Y, Z);
+    // NPC identity/placement and the player's reachable interaction spot are distinct.
+    // The Firmament preset supplies the fixed counter-side interaction spots.
+    public bool ApproachSaved;
+    public float ApproachX;
+    public float ApproachY;
+    public float ApproachZ;
+    public Vector3 ApproachPosition => new(ApproachX, ApproachY, ApproachZ);
 }

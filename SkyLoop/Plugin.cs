@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Dalamud.Game.Command;
 using Dalamud.Interface.Windowing;
 using Dalamud.IoC;
@@ -33,7 +34,9 @@ public sealed class Plugin : IDalamudPlugin
     {
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         RewardCatalog.Load();
-        RewardCatalog.ApplyNpcDefaults(Configuration);
+        RewardCatalog.ApplyCurrencyDefaults(Configuration);
+        RecipeCatalog.Load();
+        ApplyFixedNpcLocations();
         Controller = new LoopController(Configuration);
         mainWindow = new MainWindow(this);
         windows.AddWindow(mainWindow);
@@ -46,12 +49,25 @@ public sealed class Plugin : IDalamudPlugin
     }
 
     private void OnUpdate(IFramework framework) => Controller.Update();
+    public void StartLoop()
+    {
+        if (Controller.IsRunning) return;
+        ApplyFixedNpcLocations();
+        Controller.Start();
+    }
+    private void ApplyFixedNpcLocations()
+    {
+        var candidates = ObjectTable.Where(npc => npc.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventNpc
+            && npc.IsTargetable).Select(npc => npc.BaseId).ToArray();
+        FirmamentLocations.Apply(Configuration, candidates);
+        Log.Information($"Fixed NPC locations: turnIn={Configuration.TurnInNpc.DataId}, exchange={Configuration.ExchangeNpc.DataId}.");
+    }
     private void Toggle() => mainWindow.Toggle();
     private void OnCommand(string command, string arguments)
     {
         switch (arguments.Trim().ToLowerInvariant())
         {
-            case "start": Controller.Start(); break;
+            case "start": StartLoop(); break;
             case "stop": Controller.Stop(); break;
             default: Toggle(); break;
         }

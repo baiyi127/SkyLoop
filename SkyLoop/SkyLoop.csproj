@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>0.1.2</Version>
+    <Version>0.1.3</Version>
     <!-- Manifest fields (see https://github.com/goatcorp/DalamudPackager/blob/827d88dc/DalamudPackager/DalamudPackager.cs#L420) -->
     <Author>baiyi127</Author>
     <Name>天穹循环 SkyLoop（测试版）</Name>
     <Punchline>宏队列、伊修加德重建提交与天穹街振兴票兑换。</Punchline>
-    <Description>国服 API 15 测试版。可编辑宏队列，检测宏及制作结果，背包阈值自动提交，票数阈值自动兑换；需要 vnavmesh 导航。完整游戏循环尚未验证通过。</Description>
+    <Description>国服 API 15 测试版。可搜索制作配方、编辑宏队列，背包阈值自动提交，票数阈值自动兑换；使用固定NPC交互位置，需要 vnavmesh 导航。已实测连续制作、提交和兑换，长时间完整循环仍待验证。</Description>
     <RepoUrl>https://github.com/baiyi127/SkyLoop</RepoUrl>
     <Tags>crafting;firmament;macro</Tags>
   </PropertyGroup>

@@ -44,6 +44,12 @@ namespace SkyLoop
 
 namespace SkyLoop.Services
 {
+    public sealed record RewardOption(uint ItemId, uint Cost);
+    public static class RewardCatalog
+    {
+        public static List<RewardOption> Items { get; } = [];
+    }
+
     public static class InventoryService
     {
         public static int Slots = 20;
@@ -60,6 +66,7 @@ namespace SkyLoop.Services
         public static List<int> Started = [];
         public static int Resets;
         public string Error => "macro failure";
+        public string Status => "macro status";
         public void Start(MacroStep step) => Started.Add(step.Number);
         public WorkResult Tick() => NextResult;
         public WorkResult PrepareCraft(uint recipeId) => PrepareResult;
@@ -79,6 +86,19 @@ namespace SkyLoop.Services
         public void Stop() => Stops++;
     }
 
+    public sealed class CraftingExitService
+    {
+        public static WorkResult NextResult = WorkResult.Complete;
+        public static int Begins;
+        public static int Ticks;
+        public static int Resets;
+        public string Error => "craft exit failure";
+        public string Status => "waiting for crafting exit";
+        public void Begin() => Begins++;
+        public WorkResult Tick() { Ticks++; return NextResult; }
+        public void Reset() => Resets++;
+    }
+
     public sealed class FirmamentService
     {
         public FirmamentService(Configuration config) { }
@@ -86,6 +106,8 @@ namespace SkyLoop.Services
         public static WorkResult ExchangeResult = WorkResult.Pending;
         public static int Resets;
         public static bool ExchangeRequired;
+        public static int VerifiedPurchases;
+        public int CompletedPurchases => VerifiedPurchases;
         public bool NeedsExchange => ExchangeRequired;
         public static uint ScripCount() => (uint)InventoryService.Scrips;
         public string Error => "Firmament failure";

@@ -20,12 +20,25 @@ var checks = new (string Name, Action Run)[]
     ("recipe 34472 submits with twelve slots when the threshold is twelve", SubmitAtTwelveSlots),
     ("currency threshold includes exactly the configured amount", CurrencyThreshold),
     ("currency exchange takes priority over submission", ExchangePriority),
+    ("navigation stays queued until crafting exit completes", NavigationWaitsForCraftingExit),
+    ("failed crafting exit prevents navigation", FailedCraftingExitPreventsNavigation),
+    ("stopping crafting exit cancels queued navigation permanently", StopCancelsQueuedNavigation),
+    ("combat while leaving crafting cancels queued navigation", CombatCancelsQueuedNavigation),
+    ("already idle crafting exit starts navigation immediately", IdleExitStartsNavigation),
+    ("exchange navigation also waits for crafting exit", ExchangeWaitsForCraftingExit),
     ("macro queue waits and advances strictly in configured order", MacroOrdering),
     ("failed macro prevents the following macro", MacroFailure),
     ("exchange and submission return home before crafting", ErrandRoundTrip),
     ("submission without reclaimed space stops the loop", NoTurnInProgress),
     ("insufficient currency headroom exchanges before the threshold", ExchangeForHeadroom),
     ("headroom exchange must actually spend currency", RejectNoProgressHeadroomExchange),
+    ("65 to 25 is successful with trigger 20 and price 40", LowThresholdExchangeSuccess),
+    ("a trigger below price never sends an unaffordable exchange trip", UnaffordableTriggerContinues),
+    ("reserved tickets are excluded from the next exchange trigger", ReservedRemainderContinues),
+    ("cap headroom cannot force an unaffordable exchange trip", RejectUnaffordableHeadroom),
+    ("unknown zero-price and unreachable rewards stop before crafting", RejectInvalidRewardChoices),
+    ("earlier purchases cannot satisfy a later zero-progress exchange", PriorPurchasesAreNotNewProgress),
+    ("last submission can exchange before low-slot validation stops", LastSubmissionCanExchange),
     ("combat interrupts navigation and clears owned work", CombatStops),
     ("territory changes stop the loop", TerritoryStops),
     ("explicit stop clears navigation macro and interaction work", StopClearsWork),
@@ -61,6 +74,8 @@ static void Reset()
     Plugin.Condition.Clear();
     InventoryService.Slots = 20;
     InventoryService.Scrips = 0;
+    RewardCatalog.Items.Clear();
+    RewardCatalog.Items.Add(new(123, 40));
     MacroService.NextResult = WorkResult.Pending;
     MacroService.PrepareResult = WorkResult.Complete;
     MacroService.Started.Clear();
@@ -69,9 +84,14 @@ static void Reset()
     NavigationService.NextResult = WorkResult.Pending;
     NavigationService.Destinations.Clear();
     NavigationService.Stops = 0;
+    CraftingExitService.NextResult = WorkResult.Complete;
+    CraftingExitService.Begins = 0;
+    CraftingExitService.Ticks = 0;
+    CraftingExitService.Resets = 0;
     FirmamentService.TurnInResult = WorkResult.Pending;
     FirmamentService.ExchangeResult = WorkResult.Pending;
     FirmamentService.ExchangeRequired = false;
+    FirmamentService.VerifiedPurchases = 0;
     FirmamentService.Resets = 0;
 }
 
@@ -261,6 +281,84 @@ static void ExchangePriority()
     Expect(NavigationService.Destinations.Single().Name == "exchange", "must spend tickets before submitting");
 }
 
+static void NavigationWaitsForCraftingExit()
+{
+    CraftingExitService.NextResult = WorkResult.Pending;
+    InventoryService.Slots = 10;
+    var loop = new LoopController(Config()); loop.Start(); Tick(loop);
+    ExpectState(loop, LoopState.LeavingCrafting);
+    Expect(CraftingExitService.Begins == 1 && NavigationService.Destinations.Count == 0,
+        "request crafting exit before sending a path to vnavmesh");
+    Tick(loop); Tick(loop);
+    ExpectState(loop, LoopState.LeavingCrafting);
+    Expect(NavigationService.Destinations.Count == 0 && MacroService.Started.Count == 0,
+        "neither navigation nor another macro can start while the character is still crafting");
+    CraftingExitService.NextResult = WorkResult.Complete; Tick(loop);
+    ExpectState(loop, LoopState.ToTurnIn);
+    Expect(NavigationService.Destinations.Count == 1 && NavigationService.Destinations[0].Name == "turnin",
+        "the exact queued destination must start once exit is confirmed");
+    Tick(loop);
+    Expect(NavigationService.Destinations.Count == 1, "subsequent updates must not issue the queued path again");
+}
+
+static void FailedCraftingExitPreventsNavigation()
+{
+    CraftingExitService.NextResult = WorkResult.Failed;
+    InventoryService.Slots = 10;
+    var loop = new LoopController(Config()); loop.Start(); Tick(loop);
+    ExpectState(loop, LoopState.Faulted);
+    Expect(NavigationService.Destinations.Count == 0, "failed exit must not execute any path");
+    Expect(loop.Status.Contains("craft exit failure", StringComparison.Ordinal), "keep the exit failure reason visible");
+}
+
+static void StopCancelsQueuedNavigation()
+{
+    CraftingExitService.NextResult = WorkResult.Pending;
+    InventoryService.Slots = 10;
+    var loop = new LoopController(Config()); loop.Start(); Tick(loop);
+    ExpectState(loop, LoopState.LeavingCrafting);
+    var resets = CraftingExitService.Resets;
+    loop.Stop(); ExpectState(loop, LoopState.Stopped);
+    Expect(CraftingExitService.Resets > resets, "stop must reset the crafting exit operation");
+    CraftingExitService.NextResult = WorkResult.Complete; Tick(loop); Tick(loop);
+    ExpectState(loop, LoopState.Stopped);
+    Expect(NavigationService.Destinations.Count == 0, "a late exit completion must never start the canceled path");
+}
+
+static void CombatCancelsQueuedNavigation()
+{
+    CraftingExitService.NextResult = WorkResult.Pending;
+    InventoryService.Slots = 10;
+    var loop = new LoopController(Config()); loop.Start(); Tick(loop);
+    var resets = CraftingExitService.Resets;
+    Plugin.Condition[ConditionFlag.InCombat] = true; Tick(loop);
+    ExpectState(loop, LoopState.Faulted);
+    Expect(CraftingExitService.Resets > resets && NavigationService.Destinations.Count == 0,
+        "combat must clear the pending exit and prevent navigation");
+}
+
+static void IdleExitStartsNavigation()
+{
+    CraftingExitService.NextResult = WorkResult.Complete;
+    InventoryService.Slots = 10;
+    var loop = new LoopController(Config()); loop.Start(); Tick(loop);
+    ExpectState(loop, LoopState.ToTurnIn);
+    Expect(CraftingExitService.Begins == 1 && CraftingExitService.Ticks == 1
+        && NavigationService.Destinations.Count == 1, "an already idle character can begin the path in the same update");
+}
+
+static void ExchangeWaitsForCraftingExit()
+{
+    CraftingExitService.NextResult = WorkResult.Pending;
+    InventoryService.Scrips = 9000;
+    var loop = new LoopController(Config()); loop.Start(); Tick(loop);
+    ExpectState(loop, LoopState.LeavingCrafting);
+    Expect(NavigationService.Destinations.Count == 0, "exchange path must not start while crafting flags remain active");
+    CraftingExitService.NextResult = WorkResult.Complete; Tick(loop);
+    ExpectState(loop, LoopState.ToExchange);
+    Expect(NavigationService.Destinations.Single().Name == "exchange", "preserve the queued exchange destination");
+}
+
 static void MacroOrdering()
 {
     var config = Config();
@@ -293,6 +391,7 @@ static void ErrandRoundTrip()
     NavigationService.NextResult = WorkResult.Complete;
     Tick(loop); ExpectState(loop, LoopState.Exchanging);
     FirmamentService.ExchangeResult = WorkResult.Complete; InventoryService.Scrips = 100;
+    FirmamentService.VerifiedPurchases = 1;
     Tick(loop); ExpectState(loop, LoopState.Decide);
     Tick(loop); ExpectState(loop, LoopState.ToTurnIn);
     Tick(loop); ExpectState(loop, LoopState.TurningIn);
@@ -339,6 +438,106 @@ static void RejectNoProgressHeadroomExchange()
     FirmamentService.ExchangeResult = WorkResult.Complete; Tick(loop);
     ExpectState(loop, LoopState.Faulted);
     Expect(MacroService.Started.Count == 0, "must stop when reward price or reserve prevents all spending");
+}
+
+static void LowThresholdExchangeSuccess()
+{
+    var config = Config(); config.ScripThreshold = 20;
+    InventoryService.Scrips = 65;
+    var loop = new LoopController(config); loop.Start(); Tick(loop);
+    ExpectState(loop, LoopState.ToExchange);
+    NavigationService.NextResult = WorkResult.Complete; Tick(loop);
+    ExpectState(loop, LoopState.Exchanging);
+    InventoryService.Scrips = 25;
+    FirmamentService.VerifiedPurchases = 1;
+    FirmamentService.ExchangeResult = WorkResult.Complete; Tick(loop);
+    ExpectState(loop, LoopState.Decide);
+    Tick(loop); ExpectState(loop, LoopState.Returning);
+    Tick(loop); Tick(loop); Tick(loop);
+    ExpectState(loop, LoopState.RunningMacro);
+    Expect(NavigationService.Destinations.Select(x => x.Name).SequenceEqual(["exchange", "home"]),
+        "a verified purchase must resume crafting without a second unaffordable exchange trip");
+}
+
+static void UnaffordableTriggerContinues()
+{
+    var config = Config(); config.ScripThreshold = 20;
+    InventoryService.Scrips = 25;
+    var loop = new LoopController(config); loop.Start(); Tick(loop); Tick(loop);
+    ExpectState(loop, LoopState.RunningMacro);
+    Expect(NavigationService.Destinations.Count == 0, "25 tickets cannot buy the selected 40-ticket item");
+    Reset();
+    InventoryService.Scrips = 25; InventoryService.Slots = 10;
+    loop = new LoopController(config); loop.Start(); Tick(loop);
+    ExpectState(loop, LoopState.ToTurnIn);
+    Expect(NavigationService.Destinations.Single().Name == "turnin", "earn tickets by submission instead of visiting an unaffordable shop");
+}
+
+static void ReservedRemainderContinues()
+{
+    var config = Config(); config.ScripThreshold = 40; config.ScripReserve = 30;
+    InventoryService.Scrips = 65;
+    var loop = new LoopController(config); loop.Start(); Tick(loop); Tick(loop);
+    ExpectState(loop, LoopState.RunningMacro);
+    Expect(NavigationService.Destinations.Count == 0, "the 30 reserved tickets leave only 35 spendable, despite balance exceeding both trigger and price");
+}
+
+static void RejectUnaffordableHeadroom()
+{
+    var config = Config(); config.ScripThreshold = 9999;
+    RewardCatalog.Items.Clear(); RewardCatalog.Items.Add(new(123, 10000));
+    InventoryService.Scrips = 9950; InventoryService.Slots = 10;
+    var loop = new LoopController(config); loop.Start(); Tick(loop);
+    ExpectState(loop, LoopState.ToTurnIn);
+    NavigationService.NextResult = WorkResult.Complete; Tick(loop);
+    FirmamentService.ExchangeRequired = true; FirmamentService.TurnInResult = WorkResult.Complete;
+    Tick(loop); ExpectState(loop, LoopState.Faulted);
+    Expect(loop.Status.Contains("买不起", StringComparison.Ordinal), "report a cap/affordability conflict instead of claiming a failed purchase");
+    Expect(NavigationService.Destinations.All(x => x.Name != "exchange"), "do not route to the shop without enough spendable tickets");
+}
+
+static void RejectInvalidRewardChoices()
+{
+    foreach (var scenario in new[] { "unknown", "zero-price", "reserve-impossible" })
+    {
+        Reset();
+        var config = Config();
+        if (scenario == "unknown") config.RewardItemId = 999;
+        if (scenario == "zero-price") { RewardCatalog.Items.Clear(); RewardCatalog.Items.Add(new(123, 0)); }
+        if (scenario == "reserve-impossible")
+        {
+            config.ScripReserve = 2000;
+            RewardCatalog.Items.Clear(); RewardCatalog.Items.Add(new(123, 8400));
+        }
+        var loop = new LoopController(config); loop.Start(); Tick(loop);
+        ExpectState(loop, LoopState.Faulted);
+        Expect(MacroService.Started.Count == 0 && NavigationService.Destinations.Count == 0,
+            $"{scenario} must not craft indefinitely with an unusable automatic exchange setting");
+    }
+}
+
+static void PriorPurchasesAreNotNewProgress()
+{
+    var config = Config(); config.ScripThreshold = 20;
+    InventoryService.Scrips = 65; FirmamentService.VerifiedPurchases = 7;
+    var loop = new LoopController(config); loop.Start(); Tick(loop);
+    NavigationService.NextResult = WorkResult.Complete; Tick(loop);
+    InventoryService.Scrips = 25; FirmamentService.ExchangeResult = WorkResult.Complete;
+    Tick(loop); ExpectState(loop, LoopState.Faulted);
+    Expect(MacroService.Started.Count == 0, "currency changes without a new verified purchase do not prove this exchange succeeded");
+}
+
+static void LastSubmissionCanExchange()
+{
+    var config = Config(); config.ScripThreshold = 20;
+    InventoryService.Slots = 10;
+    var loop = new LoopController(config); loop.Start(); Tick(loop);
+    NavigationService.NextResult = WorkResult.Complete; Tick(loop);
+    InventoryService.Scrips = 65; FirmamentService.TurnInResult = WorkResult.Complete;
+    Tick(loop); ExpectState(loop, LoopState.Decide);
+    Tick(loop); ExpectState(loop, LoopState.ToExchange);
+    Expect(NavigationService.Destinations.Select(x => x.Name).SequenceEqual(["turnin", "exchange"]),
+        "an affordable reward should still exchange after the final turn-in, even if carried items keep slots low");
 }
 
 static void CombatStops()

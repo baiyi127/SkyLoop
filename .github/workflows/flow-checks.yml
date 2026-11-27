@@ -16,3 +16,17 @@ jobs:
         run: dotnet run --project tests/FlowChecks/FlowChecks.csproj -c Release
       - name: Check NPC turn-in request validation
         run: dotnet run --project tests/TurnInRequestChecks/TurnInRequestChecks.csproj -c Release
+      - name: Check macro result target and baseline
+        run: dotnet run --project tests/MacroResultChecks/MacroResultChecks.csproj -c Release
+      - name: Check selected recipe window reuse
+        run: dotnet run --project tests/PreparationChecks/PreparationChecks.csproj -c Release
+      - name: Check crafting exit before navigation
+        run: dotnet run --project tests/CraftExitChecks/CraftExitChecks.csproj -c Release
+      - name: Check owned purchase confirmation
+        run: dotnet run --project tests/PurchaseChecks/PurchaseChecks.csproj -c Release
+      - name: Check saved navigation approach points and cancellation
+        run: dotnet run --project tests/NavigationChecks/NavigationChecks.csproj -c Release
+      - name: Check currency affordability and cap headroom
+        run: dotnet run --project tests/CurrencyPolicyChecks/CurrencyPolicyChecks.csproj -c Release
+      - name: Check fixed Firmament NPC interaction spots
+        run: dotnet run --project tests/FirmamentLocationChecks/FirmamentLocationChecks.csproj -c Release

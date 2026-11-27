@@ -12,6 +12,7 @@ public sealed class NavigationService
 {
     private NpcLocation? target;
     private Vector3 destination;
+    private float arrivalTolerance;
     private CancellationTokenSource? cancellation;
     private Task<List<Vector3>>? path;
     private bool ownsMovement;
@@ -51,16 +52,22 @@ public sealed class NavigationService
             Error = "角色尚未就绪。";
             return;
         }
-        if (!float.IsFinite(location.X) || !float.IsFinite(location.Y) || !float.IsFinite(location.Z))
+        var useApproach = location.DataId != 0 && location.ApproachSaved;
+        var position = useApproach ? location.ApproachPosition : location.Position;
+        if (!float.IsFinite(position.X) || !float.IsFinite(position.Y) || !float.IsFinite(position.Z))
         {
             Error = "目标坐标无效。";
             return;
         }
         target = location;
-        destination = location.Position;
+        destination = position;
+        arrivalTolerance = useApproach ? 0.6f : location.DataId == 0 ? 1.2f : 2.8f;
         // BaseId remains stable across object respawns; object IDs do not.
         var npc = location.DataId == 0 ? null : Plugin.ObjectTable.FirstOrDefault(o => o.BaseId == location.DataId);
-        if (npc != null) destination = npc.Position;
+        // A player-side interaction spot must never be replaced with a
+        // centre behind a counter. Live placement is only a legacy fallback.
+        if (!useApproach && npc != null) destination = npc.Position;
+        Plugin.Log.Information($"Navigation start: npc={location.DataId}, approach={useApproach}, from={player.Position}, destination={destination}, npcPosition={npc?.Position}, tolerance={arrivalTolerance}.");
         started = lastProgress = DateTime.UtcNow;
         lastPosition = player.Position;
     }
@@ -74,9 +81,9 @@ public sealed class NavigationService
             return Fail("角色或区域发生变化，导航停止。");
         if ((DateTime.UtcNow - started).TotalSeconds > 120)
             return Fail("导航超过 120 秒，已停止。");
-        var tolerance = target.DataId == 0 ? 1.2f : 2.8f;
-        if (Vector3.Distance(player.Position, destination) <= tolerance)
+        if (Vector3.Distance(player.Position, destination) <= arrivalTolerance)
         {
+            Plugin.Log.Information($"Navigation arrived: npc={target.DataId}, position={player.Position}, destination={destination}.");
             Stop();
             return WorkResult.Complete;
         }
@@ -108,6 +115,13 @@ public sealed class NavigationService
                 var waypoints = path.GetAwaiter().GetResult();
                 path = null;
                 if (waypoints.Count == 0) return Fail("vnavmesh 未返回可行路径。");
+                if (waypoints.Any(p => !float.IsFinite(p.X) || !float.IsFinite(p.Y) || !float.IsFinite(p.Z)))
+                    return Fail("vnavmesh 返回了无效路径坐标。");
+                if (Vector3.Distance(waypoints[^1], destination) > arrivalTolerance)
+                    return Fail("路径未到达目标站位，请检查导航网格与当前位置。");
+                var pathLength = Vector3.Distance(player.Position, waypoints[0]);
+                for (var i = 1; i < waypoints.Count; i++) pathLength += Vector3.Distance(waypoints[i - 1], waypoints[i]);
+                Plugin.Log.Information($"Navigation path: npc={target.DataId}, destination={destination}, end={waypoints[^1]}, waypoints={waypoints.Count}, length={pathLength:F2}.");
                 // Recheck ownership after async pathfinding before starting actual movement.
                 if (Plugin.PluginInterface.GetIpcSubscriber<bool>("vnavmesh.Path.IsRunning").InvokeFunc()
                     || Plugin.PluginInterface.GetIpcSubscriber<bool>("vnavmesh.SimpleMove.PathfindInProgress").InvokeFunc())

@@ -76,41 +76,17 @@ public static class RewardCatalog
         }
     }
 
-    public static void ApplyNpcDefaults(Configuration config)
+    public static void ApplyCurrencyDefaults(Configuration config)
     {
         try
         {
-            var appraisers = new HashSet<uint>();
-            var exchanges = new HashSet<uint>();
-            foreach (var npc in Plugin.DataManager.GetExcelSheet<ENpcBase>())
-            {
-                if (npc.ENpcData.Any(e => e.RowId == 721545)) appraisers.Add(npc.RowId);
-                if (npc.ENpcData.Any(e => e.RowId == 721546)) exchanges.Add(npc.RowId);
-            }
-            // Development phases have different NPC base ids. Prefer a live placement;
-            // otherwise the later id is the completed Firmament's placement.
-            var liveIds = Plugin.ObjectTable.Select(o => o.BaseId).ToHashSet();
-            var levels = Plugin.DataManager.GetExcelSheet<Level>()
-                .Where(l => appraisers.Contains(l.Object.RowId) || exchanges.Contains(l.Object.RowId))
-                .OrderByDescending(l => liveIds.Contains(l.Object.RowId)).ThenByDescending(l => l.Object.RowId);
-            foreach (var level in levels)
-            {
-                var id = level.Object.RowId;
-                var dest = appraisers.Contains(id) ? config.TurnInNpc : exchanges.Contains(id) ? config.ExchangeNpc : null;
-                if (dest == null || dest.Saved || level.Territory.RowId == 0) continue;
-                dest.DataId = id;
-                dest.TerritoryId = level.Territory.RowId;
-                dest.X = level.X; dest.Y = level.Y; dest.Z = level.Z;
-                dest.Name = Plugin.DataManager.GetExcelSheet<ENpcResident>().GetRow(id).Singular.ExtractText();
-                dest.Saved = true;
-            }
             var scrip = Plugin.DataManager.GetExcelSheet<Item>().GetRow(SkybuildersScripId);
             if (scrip.StackSize > 0 && scrip.StackSize <= int.MaxValue)
                 config.ScripCap = (int)scrip.StackSize;
         }
         catch (Exception ex)
         {
-            Plugin.Log.Warning(ex, "Could not resolve default Firmament NPCs; target capture remains available");
+            Plugin.Log.Warning(ex, "Could not resolve the Skybuilders' scrip cap");
         }
     }
 }
