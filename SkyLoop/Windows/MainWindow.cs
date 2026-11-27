@@ -34,6 +34,9 @@ public sealed class MainWindow : Window
         ImGui.TextWrapped("状态：" + controller.Status);
         if (!string.IsNullOrEmpty(controller.OperationDetail)) ImGui.TextWrapped("步骤：" + controller.OperationDetail);
         ImGui.Text($"背包空格：{controller.FreeSlots} / 140（≤{config.FreeSlotThreshold}格提交）    天穹街振兴票：{controller.Scrips} / {config.ScripCap}    完成轮数：{controller.CompletedCycles}");
+        ImGui.Text("装备最低耐久：" + (controller.MinimumEquipmentCondition < 0 ? "数据未就绪" :
+            controller.MinimumEquipmentCondition == int.MaxValue ? "无可维修装备" : $"{Math.Floor(controller.MinimumEquipmentCondition / 3d) / 100d:F2}%")
+            + (config.AutoRepair ? "（低于10%自动自行维修）" : "（自动维修已关闭）"));
         ImGui.Text(controller.NavigationAvailable ? "导航：vnavmesh 已就绪" : "导航：vnavmesh 未就绪（请启用并等待地图加载）");
         ImGui.BeginDisabled(controller.IsRunning);
         if (ImGui.Button("开始循环", new Vector2(130, 30))) plugin.StartLoop();
@@ -99,6 +102,8 @@ public sealed class MainWindow : Window
             }
             if (ImGui.BeginTabItem("背包与兑换"))
             {
+                changed |= ImGui.Checkbox("装备耐久低于10%时自动自行维修", ref config.AutoRepair);
+                ImGui.TextWrapped("每轮制作之间检查当前穿戴装备，先退出制作再维修，完成后继续循环。需要对应生产职业等级和足够的暗物质；无法维修时会停止并显示原因。");
                 changed |= ImGui.Checkbox("背包不足时自动提交重建物品", ref config.AutoTurnIn);
                 changed |= ImGui.Checkbox("库啵好运票已满时继续提交（放弃新好运章）", ref config.ContinueWhenKupoFull);
                 if (ImGui.InputInt("剩余空格 ≤ 此值时提交", ref config.FreeSlotThreshold)) { config.FreeSlotThreshold = Math.Clamp(config.FreeSlotThreshold, 1, 139); changed = true; }

@@ -32,3 +32,5 @@ jobs:
         run: dotnet run --project tests/FirmamentLocationChecks/FirmamentLocationChecks.csproj -c Release
       - name: Check owned Kupo voucher cap confirmation
         run: dotnet run --project tests/KupoFullConfirmationChecks/KupoFullConfirmationChecks.csproj -c Release
+      - name: Check self repair threshold resources and confirmation
+        run: dotnet run --project tests/RepairPolicyChecks/RepairPolicyChecks.csproj -c Release

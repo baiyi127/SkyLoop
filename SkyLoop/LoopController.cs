@@ -6,7 +6,7 @@ using SkyLoop.Services;
 
 namespace SkyLoop;
 
-public enum LoopState { Stopped, Decide, PreparingCraft, RunningMacro, LeavingCrafting, ToTurnIn, TurningIn, ToExchange, Exchanging, Returning, Faulted }
+public enum LoopState { Stopped, Decide, PreparingCraft, RunningMacro, LeavingCrafting, ToTurnIn, TurningIn, ToExchange, Exchanging, Returning, LeavingForRepair, Repairing, Faulted }
 
 public sealed class LoopController
 {
@@ -15,6 +15,7 @@ public sealed class LoopController
     private readonly NavigationService navigation;
     private readonly FirmamentService firmament;
     private readonly CraftingExitService craftingExit;
+    private readonly RepairService repair;
     private NpcLocation? pendingDestination;
     private LoopState pendingTravelState;
     private string pendingTravelStatus = "";
@@ -29,12 +30,14 @@ public sealed class LoopController
     public bool IsRunning => State is not (LoopState.Stopped or LoopState.Faulted);
     public string Status { get; private set; } = "已停止";
     public string OperationDetail => State == LoopState.PreparingCraft ? macros.Status :
-        State == LoopState.LeavingCrafting ? craftingExit.Status :
+        State is LoopState.LeavingCrafting or LoopState.LeavingForRepair ? craftingExit.Status :
+        State == LoopState.Repairing ? repair.Status :
         State is LoopState.TurningIn or LoopState.Exchanging ? firmament.Status : "";
     public int CompletedCycles { get; private set; }
     public int CurrentMacro => macroIndex + 1;
     public int FreeSlots { get; private set; } = -1;
     public int Scrips { get; private set; }
+    public int MinimumEquipmentCondition { get; private set; } = -1;
     public bool NavigationAvailable => navigation.IsAvailable;
 
     public LoopController(Configuration config)
@@ -44,6 +47,7 @@ public sealed class LoopController
         navigation = new NavigationService();
         firmament = new FirmamentService(config);
         craftingExit = new CraftingExitService();
+        repair = new RepairService();
     }
 
     public void Start()
@@ -66,6 +70,7 @@ public sealed class LoopController
         away = false;
         pendingDestination = null;
         craftingExit.Reset();
+        repair.Reset();
         macros.Reset();
         firmament.Reset();
         config.Save();
@@ -76,6 +81,7 @@ public sealed class LoopController
     {
         pendingDestination = null;
         craftingExit.Reset();
+        repair.Reset();
         navigation.Stop();
         macros.Reset();
         firmament.Reset();
@@ -91,12 +97,18 @@ public sealed class LoopController
         {
             FreeSlots = InventoryService.FreeSlots();
             Scrips = Plugin.ObjectTable.LocalPlayer == null ? 0 : (int)FirmamentService.ScripCount();
+            MinimumEquipmentCondition = Plugin.ObjectTable.LocalPlayer == null ? -1 : repair.ReadMinimumCondition();
             if (!IsRunning) return;
             if (Plugin.ObjectTable.LocalPlayer == null || Plugin.ClientState.TerritoryType != territory || Plugin.ObjectTable.LocalPlayer.CurrentHp == 0 || Plugin.Condition[ConditionFlag.InCombat] || Plugin.Condition[ConditionFlag.BetweenAreas] || Plugin.Condition[ConditionFlag.BetweenAreas51]) { Fail("角色离线、战斗、死亡或切换区域，流程已停止。"); return; }
             if (FreeSlots < 0) { Fail("背包数据尚未加载。"); return; }
             switch (State)
             {
                 case LoopState.Decide:
+                    if (config.AutoRepair)
+                    {
+                        if (MinimumEquipmentCondition < 0) { Fail("装备耐久数据尚未加载，已停止循环。"); return; }
+                        if (RepairPolicy.ShouldRepair(MinimumEquipmentCondition)) { BeginRepair(); return; }
+                    }
                     if (config.AutoExchange)
                     {
                         if (!TryGetExchangeCost(out var unitCost)) { Fail("所选兑换物品或保留票数无效，请重新配置后开始。"); return; }
@@ -131,6 +143,16 @@ public sealed class LoopController
                     }
                     break;
                 case LoopState.LeavingCrafting: ContinueTravel(); break;
+                case LoopState.LeavingForRepair: ContinueRepairExit(); break;
+                case LoopState.Repairing:
+                    var repaired = repair.Tick();
+                    if (repaired == WorkResult.Failed) Fail(repair.Error);
+                    else if (repaired == WorkResult.Complete)
+                    {
+                        repair.Reset();
+                        SetState(LoopState.Decide, "装备维修完成，继续循环");
+                    }
+                    break;
                 case LoopState.ToTurnIn: FinishTravel(LoopState.TurningIn, "提交重建物品"); break;
                 case LoopState.ToExchange: FinishTravel(LoopState.Exchanging, "兑换所选物品"); break;
                 case LoopState.Returning:
@@ -177,6 +199,25 @@ public sealed class LoopController
     {
         macros.Start(queue[macroIndex]);
         SetState(LoopState.RunningMacro, $"等待宏 {macroIndex + 1}/{queue.Count}（{(queue[macroIndex].Shared ? "共通" : "个人")} {queue[macroIndex].Number}）完成");
+    }
+
+    private void BeginRepair()
+    {
+        pendingDestination = null;
+        firmament.Reset();
+        craftingExit.Begin();
+        SetState(LoopState.LeavingForRepair, $"装备最低耐久 {Math.Floor(MinimumEquipmentCondition / 3d) / 100d:F2}%，退出制作准备自行维修");
+        ContinueRepairExit();
+    }
+
+    private void ContinueRepairExit()
+    {
+        var result = craftingExit.Tick();
+        if (result == WorkResult.Failed) { Fail(craftingExit.Error); return; }
+        if (result != WorkResult.Complete) return;
+        craftingExit.Reset();
+        repair.Begin();
+        SetState(LoopState.Repairing, "自行维修当前穿戴装备");
     }
 
     private void Travel(NpcLocation destination, LoopState state, string message)
@@ -227,6 +268,7 @@ public sealed class LoopController
     {
         pendingDestination = null;
         craftingExit.Reset();
+        repair.Reset();
         navigation.Stop();
         macros.Reset();
         firmament.Reset();

@@ -39,6 +39,21 @@ var checks = new (string Name, Action Run)[]
     ("unknown zero-price and unreachable rewards stop before crafting", RejectInvalidRewardChoices),
     ("earlier purchases cannot satisfy a later zero-progress exchange", PriorPurchasesAreNotNewProgress),
     ("last submission can exchange before low-slot validation stops", LastSubmissionCanExchange),
+    ("self repair triggers below ten percent but not at ten percent", RepairThresholdBoundary),
+    ("self repair waits for crafting exit before beginning", RepairWaitsForCraftingExit),
+    ("failed crafting exit prevents self repair", FailedExitPreventsRepair),
+    ("failed self repair prevents further crafting and navigation", FailedRepairStopsFlow),
+    ("completed self repair resumes the normal crafting cycle", CompletedRepairResumesFlow),
+    ("stop cancels self repair queued behind crafting exit", StopCancelsQueuedRepair),
+    ("stop resets active repair and ignores late completion", StopCancelsActiveRepair),
+    ("combat cancels repair queued behind crafting exit", CombatCancelsQueuedRepair),
+    ("combat resets active repair before another repair tick", CombatCancelsActiveRepair),
+    ("disabled self repair ignores low or unavailable durability", DisabledRepairDoesNotInterrupt),
+    ("unavailable equipment condition stops enabled self repair", UnavailableRepairConditionStops),
+    ("no repairable equipment does not request repair", NoRepairableEquipmentContinues),
+    ("repair is checked between complete macro groups", RepairDoesNotInterruptMacroGroup),
+    ("low durability takes priority over exchange and submission", RepairHasPriorityOverErrands),
+    ("repair away from home preserves the pending return trip", RepairPreservesAwayState),
     ("combat interrupts navigation and clears owned work", CombatStops),
     ("territory changes stop the loop", TerritoryStops),
     ("explicit stop clears navigation macro and interaction work", StopClearsWork),
@@ -88,6 +103,12 @@ static void Reset()
     CraftingExitService.Begins = 0;
     CraftingExitService.Ticks = 0;
     CraftingExitService.Resets = 0;
+    RepairService.MinimumCondition = 30000;
+    RepairService.NextResult = WorkResult.Pending;
+    RepairService.Reads = 0;
+    RepairService.Begins = 0;
+    RepairService.Ticks = 0;
+    RepairService.Resets = 0;
     FirmamentService.TurnInResult = WorkResult.Pending;
     FirmamentService.ExchangeResult = WorkResult.Pending;
     FirmamentService.ExchangeRequired = false;
@@ -548,6 +569,233 @@ static void CombatStops()
     Plugin.Condition[ConditionFlag.InCombat] = true; Tick(loop);
     ExpectState(loop, LoopState.Faulted);
     Expect(NavigationService.Stops > stops, "must cancel pending navigation");
+}
+
+static void ReachRepairing(LoopController loop)
+{
+    for (var attempt = 0; attempt < 4 && loop.State != LoopState.Repairing; attempt++) Tick(loop);
+    ExpectState(loop, LoopState.Repairing);
+}
+
+static void RepairThresholdBoundary()
+{
+    foreach (var condition in new[] { 2997, 2999 })
+    {
+        Reset();
+        var config = Config();
+        Expect(config.AutoRepair, "automatic self repair must be enabled by default");
+        RepairService.MinimumCondition = condition;
+        var lowConditionLoop = new LoopController(config); lowConditionLoop.Start();
+        Expect(RepairService.Resets > 0, "start must clear earlier repair operations");
+        ReachRepairing(lowConditionLoop);
+        Expect(RepairService.Begins == 1 && MacroService.Started.Count == 0,
+            $"condition {condition}/30000 below 10% must repair before starting a macro");
+    }
+    Reset();
+    RepairService.MinimumCondition = 3000;
+    var loop = new LoopController(Config()); loop.Start(); Tick(loop);
+    ExpectState(loop, LoopState.PreparingCraft);
+    Expect(RepairService.Begins == 0 && CraftingExitService.Begins == 0,
+        "exactly 10% must not trigger the strictly-below threshold");
+}
+
+static void RepairWaitsForCraftingExit()
+{
+    RepairService.MinimumCondition = 2999;
+    CraftingExitService.NextResult = WorkResult.Pending;
+    var loop = new LoopController(Config()); loop.Start(); Tick(loop);
+    ExpectState(loop, LoopState.LeavingForRepair);
+    Tick(loop); Tick(loop);
+    ExpectState(loop, LoopState.LeavingForRepair);
+    Expect(CraftingExitService.Begins == 1 && RepairService.Begins == 0 && RepairService.Ticks == 0,
+        "repair may neither begin nor execute while the character is still crafting");
+    Expect(MacroService.Started.Count == 0 && NavigationService.Destinations.Count == 0,
+        "do not start other work while leaving crafting for repair");
+    CraftingExitService.NextResult = WorkResult.Complete; ReachRepairing(loop); Tick(loop);
+    Expect(RepairService.Begins == 1, "confirmed crafting exit must begin self repair exactly once");
+}
+
+static void FailedExitPreventsRepair()
+{
+    RepairService.MinimumCondition = 2999;
+    CraftingExitService.NextResult = WorkResult.Failed;
+    var loop = new LoopController(Config()); loop.Start(); Tick(loop);
+    if (loop.State == LoopState.LeavingForRepair) Tick(loop);
+    ExpectState(loop, LoopState.Faulted);
+    Expect(RepairService.Begins == 0 && RepairService.Ticks == 0,
+        "an unsuccessful crafting exit cannot authorize a repair action");
+    Expect(MacroService.Started.Count == 0 && NavigationService.Destinations.Count == 0,
+        "failed exit stops all subsequent work");
+}
+
+static void FailedRepairStopsFlow()
+{
+    RepairService.MinimumCondition = 2999;
+    var loop = new LoopController(Config()); loop.Start(); ReachRepairing(loop);
+    var resets = RepairService.Resets;
+    RepairService.NextResult = WorkResult.Failed; Tick(loop);
+    ExpectState(loop, LoopState.Faulted);
+    Expect(loop.Status.Contains("repair failure", StringComparison.Ordinal), "preserve the self repair failure reason");
+    Expect(RepairService.Resets > resets && MacroService.Started.Count == 0 && NavigationService.Destinations.Count == 0,
+        "a failed repair must reset owned repair work and prevent crafting or travel");
+}
+
+static void CompletedRepairResumesFlow()
+{
+    RepairService.MinimumCondition = 2999;
+    var loop = new LoopController(Config()); loop.Start(); ReachRepairing(loop);
+    RepairService.MinimumCondition = 30000; RepairService.NextResult = WorkResult.Complete; Tick(loop);
+    ExpectState(loop, LoopState.Decide);
+    Expect(loop.CompletedCycles == 0, "repair must not count as a completed macro cycle");
+    Tick(loop); ExpectState(loop, LoopState.PreparingCraft);
+    Tick(loop); ExpectState(loop, LoopState.RunningMacro);
+    Expect(RepairService.Begins == 1 && MacroService.Started.SequenceEqual([1]),
+        "successful self repair must resume the ordinary macro queue once");
+}
+
+static void StopCancelsQueuedRepair()
+{
+    RepairService.MinimumCondition = 2999; CraftingExitService.NextResult = WorkResult.Pending;
+    var loop = new LoopController(Config()); loop.Start(); Tick(loop);
+    ExpectState(loop, LoopState.LeavingForRepair);
+    var resets = RepairService.Resets;
+    loop.Stop(); ExpectState(loop, LoopState.Stopped);
+    Expect(RepairService.Resets > resets, "stop must clear the repair operation even before it begins");
+    CraftingExitService.NextResult = WorkResult.Complete; RepairService.NextResult = WorkResult.Complete;
+    Tick(loop); Tick(loop);
+    ExpectState(loop, LoopState.Stopped);
+    Expect(RepairService.Begins == 0 && RepairService.Ticks == 0,
+        "late crafting exit must not begin the canceled repair");
+}
+
+static void StopCancelsActiveRepair()
+{
+    RepairService.MinimumCondition = 2999;
+    var loop = new LoopController(Config()); loop.Start(); ReachRepairing(loop);
+    var resets = RepairService.Resets;
+    loop.Stop();
+    var ticks = RepairService.Ticks;
+    Expect(RepairService.Resets > resets, "stop must reset active self repair");
+    RepairService.MinimumCondition = 30000; RepairService.NextResult = WorkResult.Complete;
+    Tick(loop); Tick(loop);
+    ExpectState(loop, LoopState.Stopped);
+    Expect(RepairService.Ticks == ticks && MacroService.Started.Count == 0,
+        "late repair completion must not poll repair or restart crafting after stop");
+}
+
+static void CombatCancelsQueuedRepair()
+{
+    RepairService.MinimumCondition = 2999; CraftingExitService.NextResult = WorkResult.Pending;
+    var loop = new LoopController(Config()); loop.Start(); Tick(loop);
+    ExpectState(loop, LoopState.LeavingForRepair);
+    var resets = RepairService.Resets;
+    Plugin.Condition[ConditionFlag.InCombat] = true; Tick(loop);
+    ExpectState(loop, LoopState.Faulted);
+    Expect(RepairService.Resets > resets && RepairService.Begins == 0,
+        "combat must cancel queued self repair before any repair action");
+    Plugin.Condition[ConditionFlag.InCombat] = false;
+    CraftingExitService.NextResult = WorkResult.Complete; RepairService.NextResult = WorkResult.Complete; Tick(loop);
+    Expect(RepairService.Begins == 0 && MacroService.Started.Count == 0,
+        "leaving combat must not revive the canceled repair or macro queue");
+}
+
+static void DisabledRepairDoesNotInterrupt()
+{
+    foreach (var condition in new[] { 2999, -1 })
+    {
+        Reset();
+        var config = Config(); config.AutoRepair = false;
+        RepairService.MinimumCondition = condition;
+        var loop = new LoopController(config); loop.Start(); Tick(loop); Tick(loop);
+        ExpectState(loop, LoopState.RunningMacro);
+        Expect(RepairService.Begins == 0 && CraftingExitService.Begins == 0,
+            "disabled self repair must not block crafting on low or unavailable condition");
+    }
+}
+
+static void CombatCancelsActiveRepair()
+{
+    RepairService.MinimumCondition = 2999;
+    var loop = new LoopController(Config()); loop.Start(); ReachRepairing(loop);
+    var resets = RepairService.Resets;
+    var ticks = RepairService.Ticks;
+    Plugin.Condition[ConditionFlag.InCombat] = true; Tick(loop);
+    ExpectState(loop, LoopState.Faulted);
+    Expect(RepairService.Resets > resets && RepairService.Ticks == ticks,
+        "combat must reset repair before permitting another repair action");
+    Plugin.Condition[ConditionFlag.InCombat] = false;
+    RepairService.MinimumCondition = 30000; RepairService.NextResult = WorkResult.Complete; Tick(loop);
+    ExpectState(loop, LoopState.Faulted);
+    Expect(RepairService.Begins == 1 && MacroService.Started.Count == 0,
+        "late completion after combat must not start another repair or macro");
+}
+
+static void UnavailableRepairConditionStops()
+{
+    RepairService.MinimumCondition = -1;
+    var loop = new LoopController(Config()); loop.Start(); Tick(loop);
+    ExpectState(loop, LoopState.Faulted);
+    Expect(RepairService.Begins == 0 && MacroService.Started.Count == 0 && NavigationService.Destinations.Count == 0,
+        "unknown equipment data must not be treated as healthy or start repair blindly");
+}
+
+static void NoRepairableEquipmentContinues()
+{
+    RepairService.MinimumCondition = int.MaxValue;
+    var loop = new LoopController(Config()); loop.Start(); Tick(loop); Tick(loop);
+    ExpectState(loop, LoopState.RunningMacro);
+    Expect(RepairService.Begins == 0, "an empty repairable-equipment set must not trigger self repair");
+}
+
+static void RepairDoesNotInterruptMacroGroup()
+{
+    var config = Config(); config.RecipeId = 34472;
+    config.Macros = [new() { Number = 64 }, new() { Number = 0, Completion = CompletionKind.CraftFinished }];
+    var loop = new LoopController(config); loop.Start(); Tick(loop); Tick(loop);
+    RepairService.MinimumCondition = 2999;
+    Tick(loop); ExpectState(loop, LoopState.RunningMacro);
+    Expect(RepairService.Begins == 0, "low condition must not interrupt a running macro");
+    MacroService.NextResult = WorkResult.Complete; Tick(loop);
+    Expect(MacroService.Started.SequenceEqual([64, 0]) && RepairService.Begins == 0,
+        "a split craft must finish its remaining macro before any repair");
+    MacroService.NextResult = WorkResult.Pending; Tick(loop);
+    ExpectState(loop, LoopState.RunningMacro);
+    Expect(RepairService.Begins == 0, "do not repair in the middle of the macro group");
+    MacroService.NextResult = WorkResult.Complete; Tick(loop);
+    ExpectState(loop, LoopState.Decide);
+    Expect(loop.CompletedCycles == 1, "finish the complete craft before repair");
+    ReachRepairing(loop);
+    Expect(MacroService.Started.SequenceEqual([64, 0]), "repair must not restart either macro from the completed group");
+    RepairService.MinimumCondition = 30000; RepairService.NextResult = WorkResult.Complete; Tick(loop);
+    Tick(loop); Tick(loop);
+    Expect(MacroService.Started.SequenceEqual([64, 0, 64]), "after repair the next full group starts normally");
+}
+
+static void RepairHasPriorityOverErrands()
+{
+    RepairService.MinimumCondition = 2999; InventoryService.Slots = 10; InventoryService.Scrips = 9000;
+    var loop = new LoopController(Config()); loop.Start(); ReachRepairing(loop);
+    Expect(RepairService.Begins == 1 && NavigationService.Destinations.Count == 0,
+        "repair must be chosen before an otherwise due exchange or submission trip");
+}
+
+static void RepairPreservesAwayState()
+{
+    InventoryService.Scrips = 9000;
+    var loop = new LoopController(Config()); loop.Start(); Tick(loop);
+    NavigationService.NextResult = WorkResult.Complete; Tick(loop);
+    ExpectState(loop, LoopState.Exchanging);
+    InventoryService.Scrips = 100; FirmamentService.VerifiedPurchases = 1;
+    FirmamentService.ExchangeResult = WorkResult.Complete; Tick(loop);
+    ExpectState(loop, LoopState.Decide);
+    RepairService.MinimumCondition = 2999; ReachRepairing(loop);
+    Expect(NavigationService.Destinations.Select(x => x.Name).SequenceEqual(["exchange"]),
+        "repair in place before resuming the pending trip home");
+    RepairService.MinimumCondition = 30000; RepairService.NextResult = WorkResult.Complete; Tick(loop);
+    ExpectState(loop, LoopState.Decide);
+    Tick(loop); ExpectState(loop, LoopState.Returning);
+    Expect(NavigationService.Destinations.Select(x => x.Name).SequenceEqual(["exchange", "home"])
+        && MacroService.Started.Count == 0, "repair must preserve away=true and return home before crafting");
 }
 
 static void TerritoryStops()

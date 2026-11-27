@@ -2,7 +2,7 @@ param(
     [ValidatePattern('^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$')]
     [string]$Repository = 'baiyi127/SkyLoop',
     [string]$DalamudPath = "$env:APPDATA\XIVLauncherCN\addon\Hooks\dev",
-    [string]$Changelog = '修复库啵好运票已满的确认框导致提交中止。新增“库啵好运票已满时继续提交（放弃新好运章）”开关，默认开启；仅对本次交付产生且文字完全匹配的提示自动确认，继续核对扣物品及振兴票增加。其他奖励溢出或未知确认仍停止。'
+    [string]$Changelog = '新增装备耐久严格低于10%时自动自行维修，默认开启。每轮制作之间先退出制作姿态，只维修当前穿戴装备；检查职业等级和暗物质，核对实际耐久恢复后继续循环。新增最低装备耐久显示和维修开关。维修流程仍待游戏内实测。'
 )
 $ErrorActionPreference = 'Stop'
 & (Join-Path $PSScriptRoot 'build.ps1') -DalamudPath $DalamudPath

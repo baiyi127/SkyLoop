@@ -20,6 +20,7 @@ public sealed class Configuration : IPluginConfiguration
     public bool AutoTurnIn = true;
     public bool ContinueWhenKupoFull = true;
     public bool AutoExchange = true;
+    public bool AutoRepair = true;
     public bool Repeat = true;
     public NpcLocation TurnInNpc = new() { Name = "提交 NPC" };
     public NpcLocation ExchangeNpc = new() { Name = "兑换 NPC" };

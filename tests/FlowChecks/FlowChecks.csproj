@@ -10,5 +10,6 @@
     <Compile Include="../../SkyLoop/LoopController.cs" Link="Production/LoopController.cs" />
     <Compile Include="../../SkyLoop/Services/MacroAddress.cs" Link="Production/Services/MacroAddress.cs" />
     <Compile Include="../../SkyLoop/Services/CurrencyPolicy.cs" Link="Production/Services/CurrencyPolicy.cs" />
+    <Compile Include="../../SkyLoop/Services/RepairPolicy.cs" Link="Production/Services/RepairPolicy.cs" />
   </ItemGroup>
 </Project>

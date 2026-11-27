@@ -99,6 +99,22 @@ namespace SkyLoop.Services
         public void Reset() => Resets++;
     }
 
+    public sealed class RepairService
+    {
+        public static int MinimumCondition = 30000;
+        public static WorkResult NextResult = WorkResult.Pending;
+        public static int Reads;
+        public static int Begins;
+        public static int Ticks;
+        public static int Resets;
+        public string Error => "repair failure";
+        public string Status => "waiting for self repair";
+        public int ReadMinimumCondition() { Reads++; return MinimumCondition; }
+        public void Begin() => Begins++;
+        public WorkResult Tick() { Ticks++; return NextResult; }
+        public void Reset() => Resets++;
+    }
+
     public sealed class FirmamentService
     {
         public FirmamentService(Configuration config) { }
