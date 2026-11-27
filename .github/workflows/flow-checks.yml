@@ -14,3 +14,5 @@ jobs:
           dotnet-version: '10.0.x'
       - name: Check workflow state transitions
         run: dotnet run --project tests/FlowChecks/FlowChecks.csproj -c Release
+      - name: Check NPC turn-in request validation
+        run: dotnet run --project tests/TurnInRequestChecks/TurnInRequestChecks.csproj -c Release

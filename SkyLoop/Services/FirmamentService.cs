@@ -2,10 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
-using Dalamud.Memory;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.Control;
+using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using FFXIVClientStructs.FFXIV.Client.UI;
+using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using NativeObject = FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject;
 
@@ -35,6 +36,8 @@ public sealed unsafe class FirmamentService(Configuration config)
     private int categoryAttempt = -1;
     private bool directCategoryTried;
     private RewardOption? selectedReward;
+    private TurnInRequestMatch? loggedRequestMatch;
+    private string lastRequestDiagnostic = "";
 
     public string Error { get; private set; } = "";
     public string Status { get; private set; } = "";
@@ -53,6 +56,8 @@ public sealed unsafe class FirmamentService(Configuration config)
         handedOver = false;
         purchaseIssued = false;
         selectedReward = null;
+        loggedRequestMatch = null;
+        lastRequestDiagnostic = "";
         triedMenuEntries.Clear();
         categoryAttempt = -1;
         directCategoryTried = false;
@@ -123,8 +128,20 @@ public sealed unsafe class FirmamentService(Configuration config)
         if (request != null)
         {
             if (selectedSupply == 0) return Fail("发现非本次任务打开的提交窗口。");
-            if (!RequestNamesItem(request, selectedSupply))
-                return Fail("提交窗口要求的物品与所选收藏品不符，已停止。");
+            var snapshot = ReadRequestIdentity(request);
+            var match = TurnInRequestValidator.Evaluate(selectedSupply, snapshot);
+            if (loggedRequestMatch != match)
+            {
+                Plugin.Log.Information($"Turn-in request identity {match}: {lastRequestDiagnostic}");
+                loggedRequestMatch = match;
+            }
+            if (!TurnInRequestValidator.CanSubmit(selectedSupply, snapshot))
+            {
+                if (match == TurnInRequestMatch.Mismatch)
+                    return Fail($"提交窗口的原生物品身份与所选收藏品不符，已停止。{lastRequestDiagnostic}");
+                Status = "等待提交窗口原生物品数据就绪；未确认身份时不会选取或提交物品。";
+                return WorkResult.Pending;
+            }
             if (HasBelowMinimumRating(selectedSupply))
                 return Fail("同名收藏品中含有不达标收藏价值的物品，请先移出这些物品后重试。");
             var button = request->GetComponentButtonById(14);
@@ -191,6 +208,8 @@ public sealed unsafe class FirmamentService(Configuration config)
             if (id.Type != AtkValueType.UInt || id.UInt != supplyOption.ItemId + 500000
                 || row.Type != AtkValueType.UInt || row.UInt >= 100) continue;
             selectedSupply = supplyOption.ItemId;
+            loggedRequestMatch = null;
+            lastRequestDiagnostic = "";
             supplyCountBefore = SupplyCount(selectedSupply);
             currencyBefore = ScripCount();
             Fire(supplyWindow, 1, (int)row.UInt);
@@ -459,20 +478,43 @@ public sealed unsafe class FirmamentService(Configuration config)
         return name.Length > 0 && prompt->NodeText.ToString().Contains(name, StringComparison.Ordinal);
     }
 
-    private static bool RequestNamesItem(AtkUnitBase* addon, uint itemId)
+    private TurnInRequestSnapshot ReadRequestIdentity(AtkUnitBase* addon)
     {
-        var name = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Item>().GetRow(itemId).Name.ExtractText();
-        for (var i = 0; i < addon->AtkValuesCount; i++)
+        // Request's AtkValues are presentation data, not an item-identity contract. The
+        // NPC trade agent reads its actual item requests from UIState.NpcTrade.Requests.
+        var request = (AddonRequest*)addon;
+        var agent = AgentNpcTrade.Instance();
+        var active = agent != null && agent->IsAgentActive();
+        var agentAddonId = agent == null ? 0u : agent->AddonId;
+        var addonId = addon->Id;
+        var addonMatches = addonId != 0 && agentAddonId == addonId;
+        var ready = addon->IsVisible && addon->IsFullyLoaded();
+        var nativeCount = 0;
+        uint actualItemId = 0;
+        var quantity = 0;
+        var collectible = false;
+        if (active && addonMatches && ready)
         {
-            var value = addon->AtkValues[i];
-            if (value.Type == AtkValueType.UInt && (value.UInt == itemId || value.UInt == itemId + 500000))
-                return true;
-            if (value.Type is AtkValueType.String or AtkValueType.ConstString or AtkValueType.ManagedString
-                && value.String.Value != null && name.Length > 0
-                && MemoryHelper.ReadSeStringNullTerminated((nint)value.String.Value).TextValue.Contains(name, StringComparison.Ordinal))
-                return true;
+            var ui = UIState.Instance();
+            if (ui != null)
+            {
+                nativeCount = ui->NpcTrade.Requests.Count;
+                if (nativeCount is >= 1 and <= 5)
+                {
+                    var first = ui->NpcTrade.Requests.Items[0];
+                    actualItemId = first.ItemId;
+                    quantity = first.RequiredQuantity;
+                    collectible = first.WantCollectible;
+                }
+            }
         }
-        return false;
+        var snapshot = new TurnInRequestSnapshot(active, addonMatches, nativeCount, request->EntryCount,
+            actualItemId, quantity, collectible, ready);
+        lastRequestDiagnostic = $"expectedItem={selectedSupply}, nativeItem={actualItemId}, "
+            + $"requestCount={nativeCount}, addonEntryCount={request->EntryCount}, quantity={quantity}, "
+            + $"collectible={collectible}, agentActive={active}, agentAddon={agentAddonId}, requestAddon={addonId}, "
+            + $"ready={ready}, stage={mode}/request, handedOver={handedOver}";
+        return snapshot;
     }
 
     private static int SupplyCount(uint itemId)
@@ -555,11 +597,13 @@ public sealed unsafe class FirmamentService(Configuration config)
     {
         if (Error.Length > 0) return false;
         if (DateTime.UtcNow - lastProgress <= TimeSpan.FromSeconds(30)) return true;
-        Error = "NPC 操作在 30 秒内未得到预期结果，已停止。最后状态：" + Status;
+        Error = "NPC 操作在 30 秒内未得到预期结果，已停止。最后状态：" + Status
+            + (lastRequestDiagnostic.Length == 0 ? "" : " " + lastRequestDiagnostic);
+        Plugin.Log.Warning(Error);
         return false;
     }
 
     private void Delay() => nextAction = DateTime.UtcNow.AddMilliseconds(700);
     private void Progress(string status) { Status = status; lastProgress = DateTime.UtcNow; Delay(); }
-    private WorkResult Fail(string error) { Error = error; return WorkResult.Failed; }
+    private WorkResult Fail(string error) { Error = error; Plugin.Log.Warning(error); return WorkResult.Failed; }
 }

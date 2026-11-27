@@ -34,6 +34,7 @@ namespace SkyLoop
     }
     public sealed class FakeLog
     {
+        public void Information(string message) { }
         public void Warning(string message) { }
         public void Error(Exception exception, string message) { }
     }
@@ -88,6 +89,7 @@ namespace SkyLoop.Services
         public bool NeedsExchange => ExchangeRequired;
         public static uint ScripCount() => (uint)InventoryService.Scrips;
         public string Error => "Firmament failure";
+        public string Status => "fake Firmament status";
         public WorkResult TickTurnIn() => TurnInResult;
         public WorkResult TickExchange() => ExchangeResult;
         public void Reset() => Resets++;

@@ -2,7 +2,7 @@ param(
     [ValidatePattern('^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$')]
     [string]$Repository = 'baiyi127/SkyLoop',
     [string]$DalamudPath = "$env:APPDATA\XIVLauncherCN\addon\Hooks\dev",
-    [string]$Changelog = '修复宏编号偏移：按游戏格子0–99直接调用，64读取64；个人与共通宏均生效。已有配置编号保持不变。仅适用于国服API15测试版，完整游戏循环尚未验证通过。'
+    [string]$Changelog = '修复重建提交物品身份误判：读取实际NPC交付请求，等待窗口数据就绪，确实不符时才停止。增加当前提交阈值、操作步骤和阶段日志，便于定位制作后停止。仅适用于国服API15测试版，完整游戏循环尚未验证通过。'
 )
 $ErrorActionPreference = 'Stop'
 & (Join-Path $PSScriptRoot 'build.ps1') -DalamudPath $DalamudPath

@@ -27,7 +27,8 @@ public sealed class MainWindow : Window
         var config = plugin.Configuration;
         var controller = plugin.Controller;
         ImGui.TextWrapped("状态：" + controller.Status);
-        ImGui.Text($"背包空格：{controller.FreeSlots} / 140    天穹街振兴票：{controller.Scrips} / {config.ScripCap}    完成轮数：{controller.CompletedCycles}");
+        if (!string.IsNullOrEmpty(controller.OperationDetail)) ImGui.TextWrapped("步骤：" + controller.OperationDetail);
+        ImGui.Text($"背包空格：{controller.FreeSlots} / 140（≤{config.FreeSlotThreshold}格提交）    天穹街振兴票：{controller.Scrips} / {config.ScripCap}    完成轮数：{controller.CompletedCycles}");
         ImGui.Text(controller.NavigationAvailable ? "导航：vnavmesh 已就绪" : "导航：vnavmesh 未就绪（请启用并等待地图加载）");
         ImGui.BeginDisabled(controller.IsRunning);
         if (ImGui.Button("开始循环", new Vector2(130, 30))) controller.Start();

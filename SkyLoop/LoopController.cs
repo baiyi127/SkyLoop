@@ -23,6 +23,7 @@ public sealed class LoopController
     public LoopState State { get; private set; }
     public bool IsRunning => State is not (LoopState.Stopped or LoopState.Faulted);
     public string Status { get; private set; } = "已停止";
+    public string OperationDetail => State is LoopState.TurningIn or LoopState.Exchanging ? firmament.Status : "";
     public int CompletedCycles { get; private set; }
     public int CurrentMacro => macroIndex + 1;
     public int FreeSlots { get; private set; } = -1;
@@ -177,5 +178,11 @@ public sealed class LoopController
         Plugin.ChatGui.PrintError("[SkyLoop] " + message);
     }
 
-    private void SetState(LoopState state, string status) { State = state; Status = status; }
+    private void SetState(LoopState state, string status)
+    {
+        if (State != state || Status != status)
+            Plugin.Log.Information($"阶段 {State} -> {state}：{status}；空格 {FreeSlots}，提交阈值 {config.FreeSlotThreshold}；票数 {Scrips}，兑换阈值 {config.ScripThreshold}；配方 {config.RecipeId}；已完成 {CompletedCycles} 轮。");
+        State = state;
+        Status = status;
+    }
 }

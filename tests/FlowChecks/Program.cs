@@ -16,6 +16,8 @@ var checks = new (string Name, Action Run)[]
     ("start rejects locations from a different territory", RejectDifferentTerritory),
     ("automatic crafting requires a final result condition", RejectPrematureCraftCompletion),
     ("inventory threshold includes exactly ten free slots", SlotThreshold),
+    ("recipe 34472 repeats with twelve slots when the threshold is ten", RepeatWithTwelveSlots),
+    ("recipe 34472 submits with twelve slots when the threshold is twelve", SubmitAtTwelveSlots),
     ("currency threshold includes exactly the configured amount", CurrencyThreshold),
     ("currency exchange takes priority over submission", ExchangePriority),
     ("macro queue waits and advances strictly in configured order", MacroOrdering),
@@ -220,6 +222,35 @@ static void CurrencyThreshold()
     loop = new LoopController(Config()); loop.Start();
     InventoryService.Scrips = 8999; Tick(loop);
     ExpectState(loop, LoopState.PreparingCraft);
+}
+
+static void RepeatWithTwelveSlots()
+{
+    var config = Config(); config.RecipeId = 34472; config.Repeat = true;
+    config.FreeSlotThreshold = 10; config.Macros[0].Number = 64;
+    InventoryService.Slots = 13; InventoryService.Scrips = 7211;
+    var loop = new LoopController(config); loop.Start(); Tick(loop); Tick(loop);
+    ExpectState(loop, LoopState.RunningMacro);
+    MacroService.NextResult = WorkResult.Complete; InventoryService.Slots = 12; Tick(loop);
+    Expect(loop.CompletedCycles == 1, "first crafted item must count as one cycle");
+    ExpectState(loop, LoopState.Decide); Tick(loop);
+    ExpectState(loop, LoopState.PreparingCraft);
+    Expect(NavigationService.Destinations.Count == 0, "twelve free slots must not trigger a threshold of ten");
+    Tick(loop); ExpectState(loop, LoopState.RunningMacro);
+    Expect(MacroService.Started.SequenceEqual([64, 64]), "recipe loop must start the second macro cycle");
+}
+
+static void SubmitAtTwelveSlots()
+{
+    var config = Config(); config.RecipeId = 34472; config.Repeat = true;
+    config.FreeSlotThreshold = 12; config.Macros[0].Number = 64;
+    InventoryService.Slots = 13; InventoryService.Scrips = 7211;
+    var loop = new LoopController(config); loop.Start(); Tick(loop); Tick(loop);
+    MacroService.NextResult = WorkResult.Complete; InventoryService.Slots = 12; Tick(loop);
+    Expect(loop.CompletedCycles == 1, "first crafted item must count as one cycle");
+    Tick(loop); ExpectState(loop, LoopState.ToTurnIn);
+    Expect(NavigationService.Destinations.Single().Name == "turnin", "inclusive threshold twelve must select the submission NPC");
+    Expect(MacroService.Started.SequenceEqual([64]), "submit before starting a second craft when the threshold is reached");
 }
 
 static void ExchangePriority()
