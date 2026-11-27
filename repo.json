@@ -3,7 +3,7 @@
     "Author": "baiyi127",
     "Name": "天穹循环 SkyLoop（测试版）",
     "InternalName": "SkyLoop",
-    "AssemblyVersion": "0.1.3.0",
+    "AssemblyVersion": "0.1.4.0",
     "Description": "国服 API 15 测试版。可搜索制作配方、编辑宏队列，背包阈值自动提交，票数阈值自动兑换；使用固定NPC交互位置，需要 vnavmesh 导航。已实测连续制作、提交和兑换，长时间完整循环仍待验证。",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/baiyi127/SkyLoop",
@@ -21,10 +21,10 @@
     "AcceptsFeedback": true,
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/baiyi127/SkyLoop/releases/download/v0.1.3/SkyLoop-0.1.3.zip",
-    "DownloadLinkUpdate": "https://github.com/baiyi127/SkyLoop/releases/download/v0.1.3/SkyLoop-0.1.3.zip",
-    "DownloadLinkTesting": "https://github.com/baiyi127/SkyLoop/releases/download/v0.1.3/SkyLoop-0.1.3.zip",
-    "LastUpdate": 1795775857,
-    "Changelog": "新增可搜索的制作配方下拉选择，提交与兑换改用内置固定交互位置。修复制作品检测、第二轮开工、退出制作姿态、普通购买确认及低阈值兑换误判。增加流程和路径诊断。国服API15测试版。"
+    "DownloadLinkInstall": "https://github.com/baiyi127/SkyLoop/releases/download/v0.1.4/SkyLoop-0.1.4.zip",
+    "DownloadLinkUpdate": "https://github.com/baiyi127/SkyLoop/releases/download/v0.1.4/SkyLoop-0.1.4.zip",
+    "DownloadLinkTesting": "https://github.com/baiyi127/SkyLoop/releases/download/v0.1.4/SkyLoop-0.1.4.zip",
+    "LastUpdate": 1795777363,
+    "Changelog": "修复库啵好运票已满的确认框导致提交中止。新增“库啵好运票已满时继续提交（放弃新好运章）”开关，默认开启；仅对本次交付产生且文字完全匹配的提示自动确认，继续核对扣物品及振兴票增加。其他奖励溢出或未知确认仍停止。"
   }
 ]
